@@ -1,0 +1,1299 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>大航海暴風雨海戰 (10 vs 10 Age of Sail Tempest)</title>
+    <!-- Tailwind CSS for UI overlays -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Noto+Serif+TC:wght@600;900&display=swap');
+        
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #030811;
+            font-family: 'Noto Serif TC', 'Cinzel', serif;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        /* Canvas full viewport */
+        #gameCanvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            cursor: none; /* Custom crosshair in canvas */
+        }
+
+        /* Glassmorphism theme styling */
+        .glass-panel {
+            background: rgba(8, 20, 38, 0.75);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(212, 175, 55, 0.25);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.6);
+        }
+
+        .gold-border {
+            border: 2px solid #d4af37;
+            box-shadow: 0 0 15px rgba(212, 175, 55, 0.3);
+        }
+
+        .gold-gradient-text {
+            background: linear-gradient(135deg, #fff3a1 0%, #d4af37 50%, #aa7c11 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* Tier Card hover glow */
+        .tier-card {
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+        .tier-card:hover {
+            transform: translateY(-6px) scale(1.02);
+            border-color: #f39c12;
+            box-shadow: 0 12px 25px rgba(243, 156, 18, 0.35);
+        }
+        .tier-card.selected {
+            border-color: #e74c3c;
+            background: rgba(192, 57, 43, 0.25);
+            box-shadow: 0 0 25px rgba(231, 76, 60, 0.6);
+        }
+
+        /* Radial progress bar for skill overlays */
+        .cd-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.75);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: #e74c3c;
+            border-radius: 0.5rem;
+            font-size: 1.1rem;
+        }
+
+        /* Custom animation for pulsating title */
+        @keyframes stormPulse {
+            0%, 100% { text-shadow: 0 0 20px rgba(52, 152, 219, 0.6), 0 0 40px rgba(212, 175, 55, 0.4); }
+            50% { text-shadow: 0 0 35px rgba(231, 76, 60, 0.8), 0 0 60px rgba(241, 196, 15, 0.6); }
+        }
+        .title-glow {
+            animation: stormPulse 4s infinite ease-in-out;
+        }
+
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.3); }
+        ::-webkit-scrollbar-thumb { background: #d4af37; border-radius: 3px; }
+    </style>
+</head>
+<body class="text-gray-100">
+
+<div id="game-container" class="relative w-screen h-screen overflow-hidden">
+    <!-- Main Game Canvas -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- START & SHIP SELECTION SCREEN -->
+    <div id="select-screen" class="absolute inset-0 z-50 flex flex-col items-center justify-between p-6 bg-slate-950/90 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-900 via-blue-950 to-black overflow-y-auto">
+        <!-- Title Header -->
+        <div class="text-center mt-4">
+            <h1 class="text-4xl md:text-6xl font-black tracking-widest gold-gradient-text title-glow mb-2">
+                大航海暴風雨海戰
+            </h1>
+            <p class="text-blue-300 text-sm md:text-lg tracking-wider font-semibold">
+                10 VS 10 世紀怒濤決戰 • 暴風雨極限海戰模擬
+            </p>
+        </div>
+
+        <!-- Tier Selection Cards Grid -->
+        <div class="w-full max-w-6xl my-6">
+            <h2 class="text-xl font-bold text-yellow-400 mb-4 text-center tracking-wide">
+                ⚓ 請選擇您的艦艇等級 (一級至六級戰列艦)
+            </h2>
+            <div id="tier-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                <!-- Injected dynamically by JS -->
+            </div>
+        </div>
+
+        <!-- Control Hints & Start Button -->
+        <div class="flex flex-col items-center gap-4 mb-6 w-full max-w-3xl">
+            <div class="glass-panel p-4 rounded-xl text-xs md:text-sm text-gray-300 w-full grid grid-cols-2 md:grid-cols-4 gap-3 text-center border-amber-500/30">
+                <div><span class="text-amber-400 font-bold block">前進 (僅向前)</span> W / ↑ / 數字鍵8</div>
+                <div><span class="text-amber-400 font-bold block">左右轉向</span> A, D / ←, → / 數字鍵4, 6</div>
+                <div><span class="text-amber-400 font-bold block">雙舷開火</span> 鼠標左鍵 / F / 空格</div>
+                <div><span class="text-amber-400 font-bold block">戰艦技能</span> 鍵盤數字 1, 2, 3</div>
+            </div>
+
+            <button id="start-btn" onclick="startGame()" class="px-10 py-4 bg-gradient-to-r from-amber-600 via-yellow-500 to-amber-700 hover:from-amber-500 hover:to-yellow-400 text-slate-950 text-xl font-extrabold rounded-full shadow-2xl transform transition active:scale-95 border-2 border-amber-200 tracking-wider">
+                啟航參戰 (10 VS 10)
+            </button>
+        </div>
+    </div>
+
+    <!-- IN-GAME HUD -->
+    <div id="hud" class="absolute inset-0 z-20 pointer-events-none hidden">
+        <!-- Top Scoreboard Bar -->
+        <div class="absolute top-4 left-1/2 -translate-x-1/2 glass-panel px-8 py-2 rounded-full flex items-center gap-8 border-amber-500/40 shadow-xl pointer-events-auto">
+            <div class="flex items-center gap-3">
+                <span class="w-3 h-3 rounded-full bg-cyan-400 animate-ping"></span>
+                <span class="text-cyan-400 font-extrabold text-lg md:text-xl">藍方聯軍: <span id="blue-count">10</span></span>
+            </div>
+            <div class="text-amber-400 font-black text-xl italic tracking-widest">VS</div>
+            <div class="flex items-center gap-3">
+                <span class="text-rose-500 font-extrabold text-lg md:text-xl">紅方艦隊: <span id="red-count">10</span></span>
+                <span class="w-3 h-3 rounded-full bg-rose-500 animate-ping"></span>
+            </div>
+        </div>
+
+        <!-- Top Left Controls Toggle & Audio Button -->
+        <div class="absolute top-4 left-4 flex gap-2 pointer-events-auto">
+            <button onclick="toggleAudio()" id="audio-btn" class="glass-panel p-2.5 rounded-lg text-amber-400 hover:text-yellow-200 hover:border-amber-400 transition text-sm font-bold flex items-center gap-1.5">
+                🔊 音效: 開
+            </button>
+        </div>
+
+        <!-- Bottom Left Player Status & Skill Panel -->
+        <div class="absolute bottom-5 left-5 w-80 glass-panel p-4 rounded-2xl border-amber-500/30 pointer-events-auto shadow-2xl">
+            <div class="flex justify-between items-center mb-1">
+                <span id="player-ship-title" class="font-extrabold text-amber-400 text-base">一級戰列艦</span>
+                <span id="speed-indicator" class="text-xs text-blue-300 font-mono">航速: 0.0 節</span>
+            </div>
+
+            <!-- Health Bar -->
+            <div class="w-full bg-slate-900 rounded-full h-4 border border-slate-700 overflow-hidden mb-3 relative">
+                <div id="hp-bar-fill" class="bg-gradient-to-r from-emerald-500 to-teal-400 h-full w-full transition-all duration-300"></div>
+                <span id="hp-text" class="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-white drop-shadow">1000 / 1000</span>
+            </div>
+
+            <!-- Skills Row -->
+            <div id="skill-row" class="grid grid-cols-3 gap-2">
+                <!-- Dynamically populated skills -->
+            </div>
+        </div>
+
+        <!-- Bottom Right Minimap Radar -->
+        <div class="absolute bottom-5 right-5 pointer-events-auto flex flex-col items-end gap-1">
+            <div class="relative w-40 h-40 rounded-full glass-panel border-2 border-amber-500/50 overflow-hidden shadow-2xl">
+                <canvas id="minimapCanvas" width="160" height="160" class="w-full h-full"></canvas>
+                <!-- Compass Rose overlay -->
+                <div class="absolute top-1 left-1/2 -translate-x-1/2 text-[9px] font-bold text-amber-400/80">N</div>
+            </div>
+            <span class="text-[10px] text-gray-400 tracking-wider">小地圖雷達 (3500x3500)</span>
+        </div>
+    </div>
+
+    <!-- GAME OVER / VICTORY MODAL -->
+    <div id="game-over-modal" class="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md hidden pointer-events-auto">
+        <div class="glass-panel p-8 rounded-3xl max-w-md w-full text-center border-2 border-amber-500/50 shadow-2xl">
+            <h2 id="game-over-title" class="text-4xl font-black mb-2 tracking-widest">勝 利</h2>
+            <p id="game-over-desc" class="text-gray-300 mb-6 text-sm">敵方艦隊已全數沉入海底！</p>
+            
+            <div class="bg-slate-900/80 rounded-xl p-4 mb-6 text-left text-sm space-y-2 border border-slate-800">
+                <div class="flex justify-between"><span>擊沉敵艦:</span><span id="stat-kills" class="font-bold text-amber-400">0</span></div>
+                <div class="flex justify-between"><span>造成總傷害:</span><span id="stat-damage" class="font-bold text-amber-400">0</span></div>
+                <div class="flex justify-between"><span>生存時間:</span><span id="stat-time" class="font-bold text-amber-400">00:00</span></div>
+            </div>
+
+            <button onclick="returnToMenu()" class="w-full py-3 bg-gradient-to-r from-amber-600 to-yellow-500 hover:from-amber-500 hover:to-yellow-400 text-slate-950 font-extrabold rounded-xl shadow-lg transition transform active:scale-95">
+                返回艦隊母港
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+
+// ==========================================
+// 1. PROCEDURAL WEB AUDIO SYNTHESIZER
+// ==========================================
+class SoundEngine {
+    constructor() {
+        this.ctx = null;
+        this.isMuted = false;
+        this.windNode = null;
+        this.windGain = null;
+    }
+
+    init() {
+        if (!this.ctx) {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            this.ctx = new AudioCtx();
+            this.startStormWind();
+        } else if (this.ctx.state === 'suspended') {
+            this.ctx.resume();
+        }
+    }
+
+    startStormWind() {
+        if (!this.ctx || this.windNode) return;
+        // Generate continuous pink/white noise for storm wind
+        const bufferSize = this.ctx.sampleRate * 2;
+        const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const output = noiseBuffer.getChannelData(0);
+        let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+        for (let i = 0; i < bufferSize; i++) {
+            const white = Math.random() * 2 - 1;
+            b0 = 0.99886 * b0 + white * 0.0555179;
+            b1 = 0.99332 * b1 + white * 0.0750759;
+            b2 = 0.96900 * b2 + white * 0.1538520;
+            b3 = 0.86650 * b3 + white * 0.3104856;
+            b4 = 0.55000 * b4 + white * 0.5329522;
+            b5 = -0.7616 * b5 - white * 0.0168980;
+            output[i] = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362;
+            output[i] *= 0.11;
+            b6 = white * 0.115926;
+        }
+
+        this.windNode = this.ctx.createBufferSource();
+        this.windNode.buffer = noiseBuffer;
+        this.windNode.loop = true;
+
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(350, this.ctx.currentTime);
+
+        this.windGain = this.ctx.createGain();
+        this.windGain.gain.setValueAtTime(0.12, this.ctx.currentTime);
+
+        this.windNode.connect(filter);
+        filter.connect(this.windGain);
+        this.windGain.connect(this.ctx.destination);
+        this.windNode.start();
+    }
+
+    playCannon() {
+        if (!this.ctx || this.isMuted) return;
+        const now = this.ctx.currentTime;
+        // Low freq thump + noise burst
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(160, now);
+        osc.frequency.exponentialRampToValueAtTime(30, now + 0.35);
+
+        gain.gain.setValueAtTime(0.6, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.35);
+    }
+
+    playImpact() {
+        if (!this.ctx || this.isMuted) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(120, now);
+        osc.frequency.exponentialRampToValueAtTime(20, now + 0.25);
+
+        gain.gain.setValueAtTime(0.7, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.25);
+    }
+
+    playSplash() {
+        if (!this.ctx || this.isMuted) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(400, now);
+        osc.frequency.exponentialRampToValueAtTime(80, now + 0.2);
+
+        gain.gain.setValueAtTime(0.2, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.2);
+    }
+
+    playThunder() {
+        if (!this.ctx || this.isMuted) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(60, now);
+        osc.frequency.exponentialRampToValueAtTime(20, now + 0.8);
+
+        gain.gain.setValueAtTime(0.8, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.8);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.8);
+    }
+
+    playSkill() {
+        if (!this.ctx || this.isMuted) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(300, now);
+        osc.frequency.exponentialRampToValueAtTime(700, now + 0.3);
+
+        gain.gain.setValueAtTime(0.3, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.3);
+    }
+}
+
+const audio = new SoundEngine();
+
+function toggleAudio() {
+    audio.isMuted = !audio.isMuted;
+    document.getElementById('audio-btn').innerText = audio.isMuted ? '🔇 音效: 關' : '🔊 音效: 開';
+}
+
+
+// ==========================================
+// 2. SHIP TIERS & SKILL CONFIGURATIONS
+// ==========================================
+const SHIP_TIERS = [
+    {
+        tier: 1,
+        name: "一級皇家旗艦",
+        subtitle: "100門重炮 • 海上霸主",
+        hp: 1800,
+        maxSpeed: 1.8,
+        turnSpeed: 0.014,
+        guns: 12, // per side
+        range: 520,
+        cd: 110,
+        skills: ['overload', 'ironclad', 'repair'],
+        desc: "極高生命值與重裝齊射，航速較慢。"
+    },
+    {
+        tier: 2,
+        name: "二級無畏暴風艦",
+        subtitle: "84門重炮 • 戰列主力",
+        hp: 1500,
+        maxSpeed: 2.1,
+        turnSpeed: 0.017,
+        guns: 10,
+        range: 480,
+        cd: 95,
+        skills: ['heavy_volley', 'wind_boost', 'repair'],
+        desc: "均衡強大的防禦與遠程火力。"
+    },
+    {
+        tier: 3,
+        name: "三級蓋倫戰艦",
+        subtitle: "64門加農炮 • 大航海傳奇",
+        hp: 1250,
+        maxSpeed: 2.4,
+        turnSpeed: 0.020,
+        guns: 8,
+        range: 440,
+        cd: 80,
+        skills: ['chain_shot', 'wind_boost', 'patch'],
+        desc: "高機動戰列艦，擅長鏈彈牽制。"
+    },
+    {
+        tier: 4,
+        name: "四級巡航武裝艦",
+        subtitle: "50門快炮 • 疾風破浪",
+        hp: 1000,
+        maxSpeed: 2.9,
+        turnSpeed: 0.024,
+        guns: 7,
+        range: 410,
+        cd: 65,
+        skills: ['smokescreen', 'wind_boost', 'patch'],
+        desc: "具有煙幕隱蔽能力，游擊優選。"
+    },
+    {
+        tier: 5,
+        name: "五級風暴護衛艦",
+        subtitle: "36門輕炮 • 獵手號",
+        hp: 780,
+        maxSpeed: 3.4,
+        turnSpeed: 0.030,
+        guns: 5,
+        range: 380,
+        cd: 50,
+        skills: ['maneuver', 'chain_shot', 'boarding'],
+        desc: "高速轉向與強勁的近戰接舷打擊。"
+    },
+    {
+        tier: 6,
+        name: "六級疾風單桅艇",
+        subtitle: "24門輕炮 • 幽靈突擊艇",
+        hp: 550,
+        maxSpeed: 4.0,
+        turnSpeed: 0.038,
+        guns: 4,
+        range: 340,
+        cd: 35,
+        skills: ['maneuver', 'wind_boost', 'boarding'],
+        desc: "極速閃避，炮擊冷卻極短。"
+    }
+];
+
+const SKILLS_DATABASE = {
+    'overload': { name: '超載齊射', cd: 480, desc: '下次齊射威力 +100%', action: (s) => { s.buffDamage = 2.0; } },
+    'ironclad': { name: '堅固加固', cd: 500, desc: '6秒內減傷 50%', action: (s) => { s.shieldTimer = 360; } },
+    'repair': { name: '損管修復', cd: 600, desc: '回復 30% 最大生命', action: (s) => { s.hp = Math.min(s.maxHp, s.hp + s.maxHp * 0.3); } },
+    'heavy_volley': { name: '重炮齊射', cd: 360, desc: '重置開火冷卻', action: (s) => { s.fireCd = 0; } },
+    'wind_boost': { name: '風帆滿載', cd: 320, desc: '5秒內航速提升 80%', action: (s) => { s.boostTimer = 300; } },
+    'chain_shot': { name: '鏈彈破帆', cd: 400, desc: '賦予特殊減速效果', action: (s) => { s.specialAmmo = 'chain'; } },
+    'patch': { name: '木板修補', cd: 350, desc: '回復 20% 生命', action: (s) => { s.hp = Math.min(s.maxHp, s.hp + s.maxHp * 0.2); } },
+    'smokescreen': { name: '煙幕掩護', cd: 550, desc: '4秒內脫離AI瞄準', action: (s) => { s.stealthTimer = 240; } },
+    'maneuver': { name: '極速轉向', cd: 280, desc: '6秒轉向速度 +100%', action: (s) => { s.turnBoostTimer = 360; } },
+    'boarding': { name: '水手接舷', cd: 380, desc: '對近距離敵艦造成重創', action: (s) => { s.triggerBoarding(); } }
+};
+
+
+// ==========================================
+// 3. GAME STATE GLOBALS & INPUT HANDLING
+// ==========================================
+const MAP_SIZE = 3500;
+let canvas, ctx, miniCanvas, miniCtx;
+let selectedTierNumber = 1;
+let gameRunning = false;
+let gameTime = 0;
+
+let player = null;
+let ships = [];
+let cannonballs = [];
+let particles = [];
+let floatingTexts = [];
+let rainParticles = [];
+let lightningTimer = 0;
+let camera = { x: 0, y: 0 };
+let mouse = { x: 0, y: 0, worldX: 0, worldY: 0 };
+let keys = {};
+
+// Player stats for match summary
+let statsKills = 0;
+let statsDamage = 0;
+let matchStartTime = 0;
+
+// Setup input listeners
+window.addEventListener('keydown', e => {
+    keys[e.key.toLowerCase()] = true;
+    keys[e.code] = true;
+    if (gameRunning && player && player.hp > 0) {
+        if (e.key === '1') player.useSkill(0);
+        if (e.key === '2') player.useSkill(1);
+        if (e.key === '3') player.useSkill(2);
+        if (e.key.toLowerCase() === 'f' || e.key === ' ') {
+            player.fireBroadside();
+        }
+    }
+});
+
+window.addEventListener('keyup', e => {
+    keys[e.key.toLowerCase()] = false;
+    keys[e.code] = false;
+});
+
+window.addEventListener('mousemove', e => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+});
+
+window.addEventListener('mousedown', e => {
+    if (e.button === 0 && gameRunning && player && player.hp > 0) {
+        player.fireBroadside();
+    }
+});
+
+
+// ==========================================
+// 4. SHIP CLASS & PHYSICS MODEL
+// ==========================================
+class Ship {
+    constructor(x, y, team, config, isPlayer = false) {
+        this.x = x;
+        this.y = y;
+        this.team = team; // 'blue' or 'red'
+        this.config = config;
+        this.isPlayer = isPlayer;
+
+        this.hp = config.hp;
+        this.maxHp = config.hp;
+        this.angle = team === 'blue' ? 0 : Math.PI; // Heading angle
+        this.speed = 0; // Forward speed ONLY (>= 0, NO REVERSING)
+        this.vx = 0;
+        this.vy = 0;
+
+        this.fireCd = 0;
+        this.buffDamage = 1.0;
+        this.shieldTimer = 0;
+        this.boostTimer = 0;
+        this.stealthTimer = 0;
+        this.turnBoostTimer = 0;
+        this.specialAmmo = null;
+
+        // Skills state setup
+        this.skills = config.skills.map(key => ({
+            key: key,
+            data: SKILLS_DATABASE[key],
+            cdTimer: 0
+        }));
+
+        // Pitch & Roll ocean wave motion parameters ("跌宕起伏")
+        this.waveOffset = Math.random() * 1000;
+        this.wavePitch = 0;
+        this.waveScale = 1;
+        this.sinkingTimer = 0;
+    }
+
+    update() {
+        if (this.hp <= 0) {
+            this.sinkingTimer++;
+            this.speed *= 0.95;
+            return;
+        }
+
+        // Timers decay
+        if (this.fireCd > 0) this.fireCd--;
+        if (this.shieldTimer > 0) this.shieldTimer--;
+        if (this.boostTimer > 0) this.boostTimer--;
+        if (this.stealthTimer > 0) this.stealthTimer--;
+        if (this.turnBoostTimer > 0) this.turnBoostTimer--;
+        this.skills.forEach(s => { if (s.cdTimer > 0) s.cdTimer--; });
+
+        // Steering & Control
+        if (this.isPlayer) {
+            this.handlePlayerControls();
+        } else {
+            this.handleAIControls();
+        }
+
+        // STRICT NO REVERSING: Clamped speed lower bound to 0
+        let topSpeed = this.config.maxSpeed * (this.boostTimer > 0 ? 1.8 : 1.0);
+        this.speed = Math.max(0, Math.min(topSpeed, this.speed));
+
+        // Inertia & Momentum Physics (Fluid Drag + Acceleration)
+        let forwardVx = Math.cos(this.angle) * this.speed;
+        let forwardVy = Math.sin(this.angle) * this.speed;
+
+        // Blend velocity vectors for drift / momentum
+        this.vx = this.vx * 0.92 + forwardVx * 0.08;
+        this.vy = this.vy * 0.92 + forwardVy * 0.08;
+
+        this.x += this.vx;
+        this.y += this.vy;
+
+        // Map Boundary Clamping
+        this.x = Math.max(120, Math.min(MAP_SIZE - 120, this.x));
+        this.y = Math.max(120, Math.min(MAP_SIZE - 120, this.y));
+
+        // Dramatic Wave Physics ("跌宕起伏")
+        let waveTime = gameTime * 0.03 + this.waveOffset;
+        this.wavePitch = Math.sin(waveTime * 1.4 + this.x * 0.003) * 0.14; // Roll tilt
+        this.waveScale = 0.93 + Math.cos(waveTime * 1.1 + this.y * 0.003) * 0.09; // Pitch height
+    }
+
+    handlePlayerControls() {
+        let turnRate = this.config.turnSpeed * (this.turnBoostTimer > 0 ? 2.0 : 1.0);
+
+        // Forward Acceleration (Up, W, Numpad 8)
+        if (keys['arrowup'] || keys['w'] || keys['numpad8'] || keys['keyw']) {
+            this.speed += 0.045;
+        } else {
+            this.speed *= 0.985; // Natural water resistance slowdown
+        }
+
+        // Turning Left/Right (Left/Right, A/D, Numpad 4/6)
+        if (keys['arrowleft'] || keys['a'] || keys['numpad4'] || keys['keya']) {
+            this.angle -= turnRate;
+        }
+        if (keys['arrowright'] || keys['d'] || keys['numpad6'] || keys['keyd']) {
+            this.angle += turnRate;
+        }
+    }
+
+    handleAIControls() {
+        // Find closest target
+        let target = null;
+        let minDist = 999999;
+        ships.forEach(other => {
+            if (other.team !== this.team && other.hp > 0 && other.stealthTimer <= 0) {
+                let d = Math.hypot(other.x - this.x, other.y - this.y);
+                if (d < minDist) {
+                    minDist = d;
+                    target = other;
+                }
+            }
+        });
+
+        if (target) {
+            let angleToTarget = Math.atan2(target.y - this.y, target.x - this.x);
+            // AI tries to align broadside (90 degrees to target angle)
+            let desiredAngle = angleToTarget + Math.PI / 2;
+            let diff = desiredAngle - this.angle;
+            diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+
+            if (diff > 0.05) this.angle += this.config.turnSpeed;
+            else if (diff < -0.05) this.angle -= this.config.turnSpeed;
+
+            this.speed += 0.025;
+
+            // AI Firing logic
+            if (minDist < this.config.range) {
+                this.fireBroadside();
+                if (Math.random() < 0.008) {
+                    this.useSkill(Math.floor(Math.random() * 3));
+                }
+            }
+        } else {
+            this.speed += 0.01;
+        }
+    }
+
+    useSkill(index) {
+        if (this.hp <= 0) return;
+        let s = this.skills[index];
+        if (s && s.cdTimer <= 0) {
+            s.cdTimer = s.data.cd;
+            s.data.action(this);
+            audio.playSkill();
+            createParticles(this.x, this.y, 20, '#f39c12');
+            if (this.isPlayer) {
+                addFloatingText("技能觸發: " + s.data.name, this.x, this.y - 40, '#f39c12');
+            }
+        }
+    }
+
+    triggerBoarding() {
+        // Boarding strike logic
+        ships.forEach(other => {
+            if (other.team !== this.team && other.hp > 0) {
+                let d = Math.hypot(other.x - this.x, other.y - this.y);
+                if (d < 180) {
+                    let dmg = 250;
+                    other.takeDamage(dmg, this);
+                    createParticles(other.x, other.y, 30, '#e74c3c');
+                    addFloatingText("接舷重創! -" + dmg, other.x, other.y - 30, '#e74c3c');
+                }
+            }
+        });
+    }
+
+    fireBroadside() {
+        if (this.fireCd > 0 || this.hp <= 0) return;
+        this.fireCd = this.config.cd;
+        audio.playCannon();
+
+        let sideAngles = [this.angle - Math.PI / 2, this.angle + Math.PI / 2];
+        let gunsPerSide = Math.ceil(this.config.guns / 2);
+
+        sideAngles.forEach(baseAngle => {
+            for (let i = 0; i < gunsPerSide; i++) {
+                let offset = (i - gunsPerSide / 2) * 10;
+                let spread = (Math.random() - 0.5) * 0.16; // Storm accuracy drift
+                let gunAngle = baseAngle + spread;
+
+                let startX = this.x + Math.cos(this.angle) * offset;
+                let startY = this.y + Math.sin(this.angle) * offset;
+
+                cannonballs.push(new Cannonball(
+                    startX, startY,
+                    gunAngle,
+                    this.config.range,
+                    35 * this.buffDamage,
+                    this.team,
+                    this.specialAmmo,
+                    this
+                ));
+
+                // Muzzle flash
+                createParticles(startX, startY, 4, '#ff9f43');
+            }
+        });
+
+        this.buffDamage = 1.0;
+        this.specialAmmo = null;
+    }
+
+    takeDamage(amount, attacker) {
+        if (this.shieldTimer > 0) amount *= 0.5;
+        this.hp -= amount;
+
+        if (attacker && attacker.isPlayer) {
+            statsDamage += amount;
+        }
+
+        if (this.hp <= 0) {
+            this.hp = 0;
+            if (attacker && attacker.isPlayer) {
+                statsKills++;
+            }
+            createParticles(this.x, this.y, 40, '#e74c3c');
+            addFloatingText("沉沒!", this.x, this.y - 30, '#c0392b');
+        } else {
+            addFloatingText("-" + Math.round(amount), this.x, this.y - 20, this.team === 'blue' ? '#3498db' : '#e74c3c');
+        }
+    }
+
+    draw(ctx) {
+        if (this.sinkingTimer > 120) return; // Completely sunk
+
+        ctx.save();
+        ctx.translate(this.x, this.y);
+
+        if (this.hp <= 0) {
+            // Sinking visual animation
+            ctx.rotate(this.angle + this.sinkingTimer * 0.01);
+            ctx.scale(1 - this.sinkingTimer / 120, 1 - this.sinkingTimer / 120);
+            ctx.globalAlpha = Math.max(0, 1 - this.sinkingTimer / 120);
+        } else {
+            // Wave pitching animation ("跌宕起伏")
+            ctx.rotate(this.angle + this.wavePitch);
+            ctx.scale(this.waveScale, this.waveScale);
+        }
+
+        if (this.stealthTimer > 0) ctx.globalAlpha = 0.35;
+
+        // Ironclad Shield Aura
+        if (this.shieldTimer > 0) {
+            ctx.beginPath();
+            ctx.arc(0, 0, 45, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(52, 152, 219, 0.25)';
+            ctx.fill();
+            ctx.strokeStyle = '#3498db';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+
+        // Hull Geometry (Detailed Age of Sail Battleship)
+        let len = 34 + this.config.tier * 4;
+        let width = 14 + this.config.tier * 1.8;
+
+        // Wood Hull Body
+        ctx.fillStyle = this.team === 'blue' ? '#1f3a60' : '#5c1d24';
+        ctx.strokeStyle = this.team === 'blue' ? '#4a90e2' : '#e74c3c';
+        ctx.lineWidth = 2.5;
+
+        ctx.beginPath();
+        ctx.moveTo(len / 2 + 12, 0); // Bow tip
+        ctx.quadraticCurveTo(len / 4, -width / 2, -len / 2, -width / 2 + 2); // Starboard curve
+        ctx.lineTo(-len / 2 - 4, 0); // Stern
+        ctx.lineTo(-len / 2, width / 2 - 2);
+        ctx.quadraticCurveTo(len / 4, width / 2, len / 2 + 12, 0); // Port curve
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Wooden Deck & Masts
+        ctx.fillStyle = '#8d5b4c';
+        ctx.fillRect(-len / 3, -width / 4, len * 0.75, width / 2);
+
+        // Canvas Sails
+        ctx.fillStyle = '#f5f6fa';
+        ctx.strokeStyle = '#dcdde1';
+        ctx.lineWidth = 1;
+
+        // Main & Fore Masts Sails
+        ctx.fillRect(-len / 4, -width / 2 - 3, 5, width + 6);
+        ctx.fillRect(8, -width / 2 - 5, 6, width + 10);
+
+        // Player Highlight Indicator
+        if (this.isPlayer) {
+            ctx.strokeStyle = '#f1c40f';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(0, 0, len + 10, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+
+        ctx.restore();
+
+        // HP Bar Display
+        if (this.hp > 0) {
+            ctx.save();
+            ctx.translate(this.x, this.y - 40);
+            ctx.fillStyle = 'rgba(0,0,0,0.7)';
+            ctx.fillRect(-22, 0, 44, 5);
+            ctx.fillStyle = this.team === 'blue' ? '#2ecc71' : '#e74c3c';
+            ctx.fillRect(-22, 0, Math.max(0, (this.hp / this.maxHp) * 44), 5);
+            ctx.restore();
+        }
+    }
+}
+
+
+// ==========================================
+// 5. CANNONBALLS & PARTICLES SYSTEM
+// ==========================================
+class Cannonball {
+    constructor(x, y, angle, range, damage, team, specialAmmo, owner) {
+        this.x = x;
+        this.y = y;
+        this.speed = 9.5;
+        this.vx = Math.cos(angle) * this.speed;
+        this.vy = Math.sin(angle) * this.speed;
+        this.range = range;
+        this.damage = damage;
+        this.team = team;
+        this.specialAmmo = specialAmmo;
+        this.owner = owner;
+        this.traveled = 0;
+        this.altitude = 0;
+    }
+
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        let dist = Math.hypot(this.vx, this.vy);
+        this.traveled += dist;
+
+        // Arc height simulation (3D trajectory illusion)
+        let progress = this.traveled / this.range;
+        this.altitude = Math.sin(progress * Math.PI) * 22;
+
+        // Smoke trail particle
+        if (Math.random() < 0.6) {
+            particles.push({
+                x: this.x,
+                y: this.y - this.altitude,
+                vx: (Math.random() - 0.5) * 1,
+                vy: (Math.random() - 0.5) * 1,
+                life: 15,
+                maxLife: 15,
+                color: 'rgba(200, 200, 200, 0.4)',
+                size: 3
+            });
+        }
+
+        // Collision Check
+        ships.forEach(s => {
+            if (s.team !== this.team && s.hp > 0) {
+                let hitDist = Math.hypot(s.x - this.x, s.y - this.y);
+                if (hitDist < 28) {
+                    s.takeDamage(this.damage, this.owner);
+                    if (this.specialAmmo === 'chain') {
+                        s.speed *= 0.5; // Chain shot slows target
+                        addFloatingText("風帆減速!", s.x, s.y - 30, '#f39c12');
+                    }
+                    audio.playImpact();
+                    createParticles(this.x, this.y, 12, '#e74c3c');
+                    this.traveled = this.range + 999; // Expire projectile
+                }
+            }
+        });
+
+        if (this.traveled >= this.range) {
+            audio.playSplash();
+            createParticles(this.x, this.y, 6, '#3498db');
+        }
+    }
+
+    draw(ctx) {
+        if (this.traveled >= this.range) return;
+        ctx.save();
+        // Render Cannonball Shadow
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Render Flying Cannonball
+        ctx.fillStyle = '#f1c40f';
+        ctx.beginPath();
+        ctx.arc(this.x, this.y - this.altitude, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+}
+
+function createParticles(x, y, count, color) {
+    for (let i = 0; i < count; i++) {
+        particles.push({
+            x: x,
+            y: y,
+            vx: (Math.random() - 0.5) * 7,
+            vy: (Math.random() - 0.5) * 7,
+            life: 20 + Math.random() * 20,
+            maxLife: 40,
+            color: color,
+            size: 2 + Math.random() * 4
+        });
+    }
+}
+
+function addFloatingText(text, x, y, color) {
+    floatingTexts.push({
+        text: text,
+        x: x,
+        y: y,
+        vy: -1.2,
+        life: 45,
+        color: color
+    });
+}
+
+
+// ==========================================
+// 6. UI INITIALIZATION & MATCH START
+// ==========================================
+function initSelectScreen() {
+    const grid = document.getElementById('tier-grid');
+    grid.innerHTML = '';
+
+    SHIP_TIERS.forEach(st => {
+        const card = document.createElement('div');
+        card.className = `tier-card glass-panel p-4 rounded-xl cursor-pointer border-2 ${st.tier === selectedTierNumber ? 'selected' : 'border-slate-700/60'}`;
+        card.onclick = () => {
+            document.querySelectorAll('.tier-card').forEach(c => c.classList.remove('selected'));
+            card.classList.add('selected');
+            selectedTierNumber = st.tier;
+        };
+
+        card.innerHTML = `
+            <div class="flex justify-between items-start mb-2">
+                <h3 class="font-bold text-lg text-amber-300">${st.name}</h3>
+                <span class="bg-amber-500/20 text-amber-300 text-xs px-2 py-0.5 rounded-full font-bold border border-amber-500/30">${st.tier}級艦</span>
+            </div>
+            <p class="text-xs text-blue-300 mb-3 font-medium">${st.subtitle}</p>
+            <div class="grid grid-cols-2 gap-x-2 gap-y-1 text-xs text-gray-300 mb-3">
+                <div>耐久: <b class="text-emerald-400">${st.hp}</b></div>
+                <div>航速: <b class="text-cyan-400">${st.maxSpeed} 節</b></div>
+                <div>舷炮: <b class="text-amber-400">${st.guns * 2} 門</b></div>
+                <div>射程: <b class="text-purple-400">${st.range}</b></div>
+            </div>
+            <p class="text-[11px] text-gray-400 italic">${st.desc}</p>
+        `;
+        grid.appendChild(card);
+    });
+}
+
+function startGame() {
+    audio.init();
+
+    document.getElementById('select-screen').classList.add('hidden');
+    document.getElementById('hud').classList.remove('hidden');
+
+    canvas = document.getElementById('gameCanvas');
+    ctx = canvas.getContext('2d');
+    miniCanvas = document.getElementById('minimapCanvas');
+    miniCtx = miniCanvas.getContext('2d');
+
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    // Reset Match Variables
+    ships = [];
+    cannonballs = [];
+    particles = [];
+    floatingTexts = [];
+    statsKills = 0;
+    statsDamage = 0;
+    matchStartTime = Date.now();
+
+    // Spawn Player
+    let playerConfig = SHIP_TIERS.find(s => s.tier === selectedTierNumber);
+    player = new Ship(700, MAP_SIZE / 2, 'blue', playerConfig, true);
+    ships.push(player);
+
+    // Spawn 9 Friendly AI ships
+    for (let i = 0; i < 9; i++) {
+        let randTier = SHIP_TIERS[Math.floor(Math.random() * SHIP_TIERS.length)];
+        ships.push(new Ship(500 + Math.random() * 400, 300 + i * 320, 'blue', randTier, false));
+    }
+
+    // Spawn 10 Enemy AI ships
+    for (let i = 0; i < 10; i++) {
+        let randTier = SHIP_TIERS[Math.floor(Math.random() * SHIP_TIERS.length)];
+        ships.push(new Ship(MAP_SIZE - 700 + Math.random() * 400, 300 + i * 320, 'red', randTier, false));
+    }
+
+    // Rain particles init
+    rainParticles = [];
+    for (let i = 0; i < 450; i++) {
+        rainParticles.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            length: 18 + Math.random() * 22,
+            speed: 14 + Math.random() * 8
+        });
+    }
+
+    // Populate HUD Skill row
+    let skillRow = document.getElementById('skill-row');
+    skillRow.innerHTML = '';
+    player.skills.forEach((s, idx) => {
+        let btn = document.createElement('div');
+        btn.className = "relative bg-slate-800/80 hover:bg-slate-700/80 border border-amber-500/30 rounded-lg p-2 text-center cursor-pointer transition";
+        btn.onclick = () => player.useSkill(idx);
+        btn.innerHTML = `
+            <span class="block text-[10px] text-amber-400 font-bold">[${idx + 1}]</span>
+            <span class="text-xs font-bold text-gray-200 block truncate">${s.data.name}</span>
+            <div id="cd-overlay-${idx}" class="cd-overlay hidden">0</div>
+        `;
+        skillRow.appendChild(btn);
+    });
+
+    document.getElementById('player-ship-title').innerText = player.config.name;
+
+    gameRunning = true;
+    requestAnimationFrame(gameLoop);
+}
+
+function resizeCanvas() {
+    if (!canvas) return;
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+
+
+// ==========================================
+// 7. MAIN GAME LOOP & RENDERER
+// ==========================================
+function gameLoop() {
+    if (!gameRunning) return;
+    gameTime++;
+
+    // Random Lightning Flash System
+    if (Math.random() < 0.003) {
+        lightningTimer = 12;
+        audio.playThunder();
+    }
+    if (lightningTimer > 0) lightningTimer--;
+
+    // Camera Center Smooth Lerp on Player
+    if (player) {
+        camera.x += (player.x - canvas.width / 2 - camera.x) * 0.1;
+        camera.y += (player.y - canvas.height / 2 - camera.y) * 0.1;
+    }
+
+    // World Mouse Position
+    mouse.worldX = mouse.x + camera.x;
+    mouse.worldY = mouse.y + camera.y;
+
+    // 1. Draw Tempest Ocean Background
+    ctx.save();
+    ctx.fillStyle = lightningTimer > 0 ? '#1b2a4a' : '#030811';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.translate(-camera.x, -camera.y);
+
+    // Dynamic Storm Ocean Grid Waves
+    ctx.strokeStyle = 'rgba(52, 152, 219, 0.08)';
+    ctx.lineWidth = 2;
+    let waveTime = gameTime * 0.02;
+    for (let x = 0; x < MAP_SIZE; x += 180) {
+        ctx.beginPath();
+        for (let y = 0; y < MAP_SIZE; y += 60) {
+            let offset = Math.sin(waveTime + y * 0.008) * 22;
+            if (y === 0) ctx.moveTo(x + offset, y);
+            else ctx.lineTo(x + offset, y);
+        }
+        ctx.stroke();
+    }
+
+    // Map Outer Boundary
+    ctx.strokeStyle = 'rgba(231, 76, 60, 0.6)';
+    ctx.lineWidth = 6;
+    ctx.strokeRect(0, 0, MAP_SIZE, MAP_SIZE);
+
+    // Player Aiming Arcs Sector Visualization
+    if (player && player.hp > 0) {
+        ctx.save();
+        ctx.translate(player.x, player.y);
+        ctx.fillStyle = 'rgba(241, 196, 15, 0.06)';
+        ctx.strokeStyle = 'rgba(241, 196, 15, 0.2)';
+        ctx.lineWidth = 1;
+
+        // Left & Right Broadside Firing Arcs
+        [-Math.PI / 2, Math.PI / 2].forEach(sideAngle => {
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.arc(0, 0, player.config.range, player.angle + sideAngle - 0.4, player.angle + sideAngle + 0.4);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+        });
+        ctx.restore();
+    }
+
+    // 2. Update & Draw Ships
+    ships.forEach(s => {
+        s.update();
+        s.draw(ctx);
+    });
+
+    // 3. Cannonballs Logic
+    for (let i = cannonballs.length - 1; i >= 0; i--) {
+        let b = cannonballs[i];
+        b.update();
+        b.draw(ctx);
+        if (b.traveled >= b.range + 1000) {
+            cannonballs.splice(i, 1);
+        }
+    }
+
+    // 4. Particle Effects
+    for (let i = particles.length - 1; i >= 0; i--) {
+        let p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life--;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+        if (p.life <= 0) particles.splice(i, 1);
+    }
+
+    // 5. Floating Text (Damage & Status)
+    for (let i = floatingTexts.length - 1; i >= 0; i--) {
+        let ft = floatingTexts[i];
+        ft.y += ft.vy;
+        ft.life--;
+        ctx.fillStyle = ft.color;
+        ctx.font = 'bold 14px "Noto Serif TC"';
+        ctx.fillText(ft.text, ft.x - 20, ft.y);
+        if (ft.life <= 0) floatingTexts.splice(i, 1);
+    }
+
+    ctx.restore();
+
+    // 6. Heavy Storm Rain Foreground
+    ctx.strokeStyle = 'rgba(174, 217, 224, 0.35)';
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    rainParticles.forEach(r => {
+        r.y += r.speed;
+        r.x -= r.speed * 0.3;
+        if (r.y > canvas.height) r.y = -20;
+        if (r.x < 0) r.x = canvas.width;
+        ctx.moveTo(r.x, r.y);
+        ctx.lineTo(r.x - r.length * 0.3, r.y + r.length);
+    });
+    ctx.stroke();
+
+    // 7. Custom Aiming Crosshair Cursor
+    ctx.strokeStyle = '#f1c40f';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(mouse.x, mouse.y, 14, 0, Math.PI * 2);
+    ctx.moveTo(mouse.x - 20, mouse.y); ctx.lineTo(mouse.x + 20, mouse.y);
+    ctx.moveTo(mouse.x, mouse.y - 20); ctx.lineTo(mouse.x, mouse.y + 20);
+    ctx.stroke();
+
+    // 8. Update HUD & Minimap
+    updateHUD();
+    drawMinimap();
+
+    // Check Match Win/Loss Conditions
+    checkMatchEnd();
+
+    requestAnimationFrame(gameLoop);
+}
+
+
+// ==========================================
+// 8. HUD & MINIMAP RADAR UPDATES
+// ==========================================
+function updateHUD() {
+    let blueAlive = ships.filter(s => s.team === 'blue' && s.hp > 0).length;
+    let redAlive = ships.filter(s => s.team === 'red' && s.hp > 0).length;
+
+    document.getElementById('blue-count').innerText = blueAlive;
+    document.getElementById('red-count').innerText = redAlive;
+
+    if (player) {
+        let hpPercent = Math.max(0, (player.hp / player.maxHp) * 100);
+        document.getElementById('hp-bar-fill').style.width = hpPercent + '%';
+        document.getElementById('hp-text').innerText = `${Math.ceil(Math.max(0, player.hp))} / ${player.maxHp}`;
+        document.getElementById('speed-indicator').innerText = `航速: ${player.speed.toFixed(1)} 節`;
+
+        player.skills.forEach((s, idx) => {
+            let overlay = document.getElementById(`cd-overlay-${idx}`);
+            if (s.cdTimer > 0) {
+                overlay.classList.remove('hidden');
+                overlay.innerText = Math.ceil(s.cdTimer / 60) + 's';
+            } else {
+                overlay.classList.add('hidden');
+            }
+        });
+    }
+}
+
+function drawMinimap() {
+    miniCtx.clearRect(0, 0, 160, 160);
+    let scale = 160 / MAP_SIZE;
+
+    ships.forEach(s => {
+        if (s.hp > 0) {
+            miniCtx.fillStyle = s.team === 'blue' ? (s.isPlayer ? '#f1c40f' : '#3498db') : '#e74c3c';
+            miniCtx.beginPath();
+            miniCtx.arc(s.x * scale, s.y * scale, s.isPlayer ? 4.5 : 2.5, 0, Math.PI * 2);
+            miniCtx.fill();
+        }
+    });
+}
+
+function checkMatchEnd() {
+    let blueAlive = ships.filter(s => s.team === 'blue' && s.hp > 0).length;
+    let redAlive = ships.filter(s => s.team === 'red' && s.hp > 0).length;
+
+    if (blueAlive === 0 || redAlive === 0 || (player && player.hp <= 0)) {
+        gameRunning = false;
+        let isVictory = redAlive === 0 && player.hp > 0;
+
+        let modal = document.getElementById('game-over-modal');
+        let title = document.getElementById('game-over-title');
+        let desc = document.getElementById('game-over-desc');
+
+        if (isVictory) {
+            title.innerText = "輝 煌 勝 利";
+            title.className = "text-4xl font-black mb-2 tracking-widest text-yellow-400 drop-shadow";
+            desc.innerText = "敵方艦隊已全數沉入暴風雨汪洋！";
+        } else {
+            title.innerText = "戰 敗 沉 沒";
+            title.className = "text-4xl font-black mb-2 tracking-widest text-rose-500 drop-shadow";
+            desc.innerText = "您的艦隊在巨浪暴風雨中覆滅...";
+        }
+
+        let elapsedSecs = Math.floor((Date.now() - matchStartTime) / 1000);
+        let mins = Math.floor(elapsedSecs / 60).toString().padStart(2, '0');
+        let secs = (elapsedSecs % 60).toString().padStart(2, '0');
+
+        document.getElementById('stat-kills').innerText = statsKills;
+        document.getElementById('stat-damage').innerText = Math.round(statsDamage);
+        document.getElementById('stat-time').innerText = `${mins}:${secs}`;
+
+        modal.classList.remove('hidden');
+    }
+}
+
+function returnToMenu() {
+    document.getElementById('game-over-modal').classList.add('hidden');
+    document.getElementById('hud').classList.add('hidden');
+    document.getElementById('select-screen').classList.remove('hidden');
+}
+
+// Window load trigger
+window.onload = () => {
+    initSelectScreen();
+};
+</script>
+</body>
+</html>
